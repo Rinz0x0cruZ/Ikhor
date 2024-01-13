@@ -1,68 +1,79 @@
 #include <iostream>
-#include <cstring>
-#include <unistd.h>
-#include <arpa/inet.h>
+#include <string>
+#include <thread>
+#include <curl/curl.h>
 
-int main() {
-    // Create a socket
-    int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (clientSocket == -1) {
-        std::cerr << "Error creating socket\n";
-        return -1;
+using namespace std;
+
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, string* output) {
+    size_t totalSize = size * nmemb;
+    output->append(static_cast<char*>(contents), totalSize);
+    return totalSize;
+}
+
+string SendCommand(const string& ip, unsigned int port, const string& command) {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        cerr << "Error initializing cURL." << endl;
+        return "";
     }
 
-    // Connect to the server
-    sockaddr_in serverAddress;
-    serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(12345); // Use the same port as the server
-    inet_pton(AF_INET, "127.0.0.1", &(serverAddress.sin_addr)); // Use the server's IP address
+    string protocol = "http";  // Adjust the protocol as needed
+    string url = protocol + "://" + ip + ":" + to_string(port);
 
-    if (connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) == -1) {
-        std::cerr << "Error connecting to server\n";
-        close(clientSocket);
-        return -1;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    // Set the command as the POST data
+    string postData = "C" + command; // Assuming 'C' indicates a command
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
+
+    string response;
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        cerr << "cURL request failed: " << curl_easy_strerror(res) << endl;
     }
 
-    // Ask for user input and send to the server until the user types "exit"
-    const size_t bufferSize = 1024;
-    char buffer[bufferSize];
+    curl_easy_cleanup(curl);
 
-    string remoteEndpoint = "/remote";
-    string clientEndpoint = "/client";
+    return response;
+}
 
+int main(int argc, char* argv[]) {
+    if (argc != 3) {
+        cerr << "Usage: " << argv[0] << " <server_ip> <server_port>\n";
+        return 1;
+    }
+
+    string ip = argv[1];
+    int port = stoi(argv[2]);
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    string command;
+
+    // Continue taking user input until "exit" is entered
     while (true) {
-        std::cout << "Enter a message (type 'exit' to quit): ";
-        std::cin.getline(buffer, bufferSize);
+        cout << "Enter a command (type 'exit' to stop): ";
+        getline(cin, command);
 
-        if (strcmp(buffer, "exit") == 0) {
-            break; // Exit the loop if the user types "exit"
+        if (command == "exit") {
+            break;
         }
 
-        // Choose the appropriate endpoint based on the client type
-        std::string endpoint = (isRemoteSoftware) ? remoteEndpoint : clientEndpoint;
+        // Send command to the server
+        string serverResponse = SendCommand(ip, port, command);
 
-        ssize_t bytesSent = send(clientSocket, buffer, strlen(buffer), 0);
-        if (bytesSent == -1) {
-            std::cerr << "Error sending data\n";
-            break; // Exit the loop on error
-        }
+        // Process the server response
+        cout << "Server response: " << serverResponse << endl;
 
-        // Wait for a response from the server (optional)
-        ssize_t bytesRead = recv(clientSocket, buffer, sizeof(buffer), 0);
-        if (bytesRead == -1) {
-            std::cerr << "Error receiving data\n";
-            break; // Exit the loop on error
-        } else if (bytesRead == 0) {
-            std::cout << "Server closed the connection\n";
-            break; // Exit the loop if the server closed the connection
-        } else {
-            buffer[bytesRead] = '\0';
-            std::cout << "Received from server: " << buffer << "\n";
-        }
+        // Introduce a delay (e.g., 3 seconds) to avoid rapid successive requests
+        std::this_thread::sleep_for(std::chrono::seconds(3));
     }
 
-    // Close socket
-    close(clientSocket);
+    curl_global_cleanup();
 
     return 0;
 }
