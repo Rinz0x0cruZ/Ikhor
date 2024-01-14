@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
     string serverResponse;
 
     // Send initial message to inform the server that the client is alive
-    PerformRequest("post", ip, port, uri, "Client is alive");
+    PerformRequest("post", ip, port, uri, "Demon is alive");
 
 restart_loop:
 
@@ -69,7 +69,7 @@ restart_loop:
     }
 
     // End the loop if the server sends "Kill Client"
-    if (serverResponse != "Kill Client") {
+    if (serverResponse != "Kill Demon") {
         goto restart_loop;
     }
 
